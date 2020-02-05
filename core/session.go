@@ -79,7 +79,6 @@ func (s *Session) InitGitHubClients() {
 		s.Log.Fatal("No valid GitHub tokens provided. Quitting!")
 	}
 }
-
 func (s *Session) GetClient() *GitHubClientWrapper {
 	sleepTime := 0 * time.Second
 

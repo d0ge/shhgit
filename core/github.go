@@ -25,51 +25,56 @@ func GetRepositories(session *Session) {
 	for c := time.Tick(sleep); ; {
 		opt := &github.ListOptions{PerPage: perPage}
 		client := session.GetClient()
+		session.Log.Warn("Starting work")
+        for index, user_repo := range session.Config.GitHubUsers {
+        session.Log.Warn("Query repo %s[..] has %d/", user_repo, index)
+            for {
+                // ListEventsForOrganization
+                    events, resp, err := client.Activity.ListEventsPerformedByUser(localCtx, user_repo, false , opt)
 
-		for {
-			events, resp, err := client.Activity.ListEvents(localCtx, opt)
+                    if err != nil {
+                        if _, ok := err.(*github.RateLimitError); ok {
+                            session.Log.Warn("Token %s[..] rate limited. Reset at %s", client.Token[:10], resp.Rate.Reset)
+                            client.RateLimitedUntil = resp.Rate.Reset.Time
+                            break
+                        }
 
-			if err != nil {
-				if _, ok := err.(*github.RateLimitError); ok {
-					session.Log.Warn("Token %s[..] rate limited. Reset at %s", client.Token[:10], resp.Rate.Reset)
-					client.RateLimitedUntil = resp.Rate.Reset.Time
-					break
-				}
+                        if _, ok := err.(*github.AbuseRateLimitError); ok {
+                            GetSession().Log.Fatal("GitHub API abused detected. Quitting...")
+                        }
 
-				if _, ok := err.(*github.AbuseRateLimitError); ok {
-					GetSession().Log.Fatal("GitHub API abused detected. Quitting...")
-				}
+                        GetSession().Log.Important("Error getting GitHub events... trying again", err)
+                    }
 
-				GetSession().Log.Important("Error getting GitHub events... trying again", err)
-			}
+                    if opt.Page == 0 {
+                        session.Log.Warn("Token %s[..] has %d/%d calls remaining.", client.Token[:10], resp.Rate.Remaining, resp.Rate.Limit)
+                    }
 
-			if opt.Page == 0 {
-				session.Log.Warn("Token %s[..] has %d/%d calls remaining.", client.Token[:10], resp.Rate.Remaining, resp.Rate.Limit)
-			}
+                    newEvents := make([]*github.Event, 0, len(events))
+                    for _, e := range events {
+                        if observedKeys[e.GetRepo().GetID()] {
+                            continue
+                        }
 
-			newEvents := make([]*github.Event, 0, len(events))
-			for _, e := range events {
-				if observedKeys[e.GetRepo().GetID()] {
-					continue
-				}
+                        newEvents = append(newEvents, e)
+                    }
 
-				newEvents = append(newEvents, e)
-			}
+                    for _, e := range newEvents {
+                        if *e.Type == "PushEvent" {
+                            observedKeys[e.GetRepo().GetID()] = true
+                            session.Repositories <- e.GetRepo().GetID()
+                        }
+                    }
 
-			for _, e := range newEvents {
-				if *e.Type == "PushEvent" {
-					observedKeys[e.GetRepo().GetID()] = true
-					session.Repositories <- e.GetRepo().GetID()
-				}
-			}
+                    if resp.NextPage == 0 {
+                        break
+                    }
 
-			if resp.NextPage == 0 {
-				break
-			}
+                    opt.Page = resp.NextPage
+                    time.Sleep(5 * time.Second)
+                }
+        }
 
-			opt.Page = resp.NextPage
-			time.Sleep(5 * time.Second)
-		}
 
 		select {
 		case <-c:

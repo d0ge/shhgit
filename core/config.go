@@ -11,6 +11,7 @@ import (
 )
 
 type Config struct {
+    GitHubUsers                  []string          `yaml:"github_users"`
 	GitHubAccessTokens           []string          `yaml:"github_access_tokens"`
 	SlackWebhook                 string            `yaml:"slack_webhook,omitempty"`
 	BlacklistedExtensions        []string          `yaml:"blacklisted_extensions"`
